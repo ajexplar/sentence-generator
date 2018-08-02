@@ -3,6 +3,10 @@ use warnings;
 use Getopt::Long;
 
 sub determineWordOccurrences {
+	# given a chain length N and list of words from training texts, creates two
+	# keys: one that contains every N words and the following word, mapped to
+	# the number of times this combination of keys occurs. The total occurrence
+	# of the N-word key is stored to calculate the probability later
 	my ($chain, $wordsRef) = @_;
 	
 	my $keySize = 0;
@@ -11,9 +15,6 @@ sub determineWordOccurrences {
 	my %mHash;
 	my %oHash;
 	my @mKeyArray;
-
-	# print join("\n", @words), "\n";
-	# print $chain;
 
 	foreach my $nextWord (@words) {
 		if ($keySize >= $chain) {
@@ -24,7 +25,7 @@ sub determineWordOccurrences {
 				$mHash{$markovKey}{$nextWord} = 1;
 			}
 			$oHash{$markovKey} += 1;
-			# print "mHash key array-@mKeyArray\n";
+			# remove the earliest word and replace it with the latest in the first key
 			shift(@mKeyArray);
 			push(@mKeyArray, $nextWord);
 			$keySize = $chain;
@@ -32,7 +33,6 @@ sub determineWordOccurrences {
 		} else {
 			push(@mKeyArray, $nextWord);
 			$keySize += 1;
-			# print "mHash key array incremented-@mKeyArray\n";
 		}
 	}
 
@@ -40,6 +40,8 @@ sub determineWordOccurrences {
 }
 
 sub calculateTransitionProbabilities {
+	# given the word order sequence mapping and the N word occurrences, divide
+	# by the total to get the probability of each sequence
 	my ($instRef, $occurRef) = @_;
 
 	my %instHash = %$instRef;
@@ -51,6 +53,8 @@ sub calculateTransitionProbabilities {
 		for my $next (keys %{$instHash{$id}}) {
 			$instHash{$id}{$next} = ($instHash{$id}{$next} / $occurHash{$id}) + $total;
 			if($total == 0) {
+				# this smallest probability is added to the others to chose an
+				# option via random number
 				$chance = $instHash{$id}{$next};
 			}
 			$total += $chance;
@@ -59,6 +63,7 @@ sub calculateTransitionProbabilities {
 }
 
 sub displayTransitionProbabilities {
+	# displays the probabilities of the given word orderings
 	my (%params) = @_;
 	foreach my $k1 (keys %params) {
 		print "$k1: {";
@@ -70,11 +75,16 @@ sub displayTransitionProbabilities {
 }
 
 sub generateSentence {
+	# given the word ordering and their probabilities, select an initial 
+	# ordering at random. One with a capital letter is chosen to start. This
+	# starts the generated sentence. The sentence is built until it reaches
+	# punctuation or passes 150 characters, then returns for output, etc
 	my (%params) = @_;
 
 	my @allKeys = keys %params;
 
 	if(!@allKeys) {
+		# there could be cases where we've ended up with no keys
 		return '';
 	}
 
@@ -83,7 +93,6 @@ sub generateSentence {
 	 	$randKey = $allKeys[rand @allKeys];
 	}
 
-	# print "randomly chose-$randKey\n";
 	my $sentence = $randKey;
 
 	my $randNum = 0;
@@ -92,17 +101,16 @@ sub generateSentence {
 	while($sentence !~ /.*[.!?\)"]$/ && length($sentence) <= 150) {
 		$randNum = rand();
 		my $trKey = join(" ", @trKeyArray);
-		# print "working key-$trKey\n";
 		if(!keys %{$params{$trKey}}) {
+			# in case we've exhausted the file input but haven't reached a
+			# natural ending point, return the sentence as-is
 			return $sentence;
 		}
 		for my $nxt (keys %{$params{$trKey}}) {
-			# print "Transition Key\t$trKey\nNext Word\t$nxt\nRandom Number\t$randNum\n";
 			if($params{$trKey}{$nxt} >= $randNum) {
 				shift(@trKeyArray);
 				push(@trKeyArray, $nxt);
 				$sentence = $sentence . " " . $nxt;
-				# print "transition key is-@trKeyArray\n";
 				last;
 			}
 		}
@@ -126,13 +134,10 @@ if(!@files) {
 	die "you must provide at least one file to read from $!";
 }
 
-# print "@files\n";
-
 my @allWords;
 my @fileContent;
 
 for my $filename(@files) {
-	# print $filename;
 	open FILE, $filename || die "cannot open $filename for reading $!";
 	push @fileContent, $_ while (<FILE>);
 	close FILE;
@@ -147,10 +152,9 @@ for my $line(@fileContent) {
 if(!@allWords) {
 	die "cannot proceed with empty files $!";
 } else {
+	# capitalize the very first word to make parsing it easier
 	$allWords[0] = uc $allWords[0];
 }
-
-# print "@allWords\n";
 
 my ($markov, $occurrences) = determineWordOccurrences($chainLength, \@allWords);
 
